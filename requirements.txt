@@ -7,3 +7,4 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 composio_core>=0.7.15
 composio_openai>=0.7.15
+composio_slack>=0.7.15

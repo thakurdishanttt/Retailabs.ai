@@ -16,6 +16,6 @@ if __name__ == "__main__":
         "src.main:app",
         host="0.0.0.0",
         port=port,
-        reload=True,
+        reload=False,  # Disable auto-reload for production
         log_level="info"
     )
