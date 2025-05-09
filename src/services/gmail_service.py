@@ -17,13 +17,23 @@ genai.configure(api_key=GEMINI_API_KEY)
 composio_tool_set = ComposioToolSet(api_key=COMPOSIO_API_KEY)
 
 
-def setup_gmail_integration():
-    """Setup Gmail integration if not already done"""
+def setup_gmail_integration(entity_id="default"):
+    """Setup Gmail integration if not already done
+    
+    Args:
+        entity_id (str, optional): A unique identifier for this Gmail connection.
+                                  This allows different users to connect different Gmail accounts.
+                                  Defaults to "default".
+    """
     try:
-        # Initiate connection to Gmail
+        
+        # Get the Composio Entity object for this user
+        entity = composio_tool_set.get_entity(id=entity_id)
+        
+        # Initiate connection to Gmail with the provided entity
         response = composio_tool_set.initiate_connection(
             app="GMAIL",
-            entity_id="default"
+            entity_id=entity_id
         )
         
         # Access properties directly instead of using .get()
@@ -38,7 +48,8 @@ def setup_gmail_integration():
             # Check if connection is active
             if hasattr(response, 'connectedAccountId'):
                 connection = composio_tool_set.get_connected_account(
-                    id=response.connectedAccountId
+                    id=response.connectedAccountId,
+                    entity_id=entity_id  # Ensure we're checking the connection for the right entity
                 )
                 # Check status directly as property
                 if connection and hasattr(connection, 'status') and connection.status == "ACTIVE":
@@ -61,22 +72,85 @@ def setup_gmail_integration():
         }
 
 
-def generate_email(prompt, is_formal=True):
-    """Generate a professional email message using Google Gemini"""
+def generate_subject(prompt):
+    """Generate an appropriate subject line for an email based on the prompt
+    
+    Args:
+        prompt (str): The prompt describing the email content
+        
+    Returns:
+        dict: Dictionary with success status and generated subject
+    """
     try:
-        # Initialize the model - use the latest available model
+        # Use the default initialized client
+        model = genai.GenerativeModel('gemini-1.5-pro')
+        
+        subject_prompt = f"""
+        Create a concise and relevant subject line for an email based on this instruction:
+        "{prompt}"
+        
+        The subject should be:
+        - Brief (5-8 words maximum)
+        - Descriptive of the email's main purpose
+        - Professional
+        - Without any quotes or special formatting
+        
+        Return only the subject text, nothing else.
+        """
+        
+        # Generate the response
+        response = model.generate_content(subject_prompt)
+        
+        # Clean up the subject (remove quotes, extra spaces, etc.)
+        subject = response.text.strip().strip('"').strip('\'').strip()
+        
+        return {
+            "success": True,
+            "subject": subject
+        }
+    
+    except Exception as e:
+        logger.error(f"Error generating subject: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Error generating subject: {str(e)}"
+        }
+
+
+def generate_email(prompt, is_formal=True, recipient_name=None, sender_name=None, sender_designation=None):
+    """Generate a professional email message using Google Gemini
+    
+    Args:
+        prompt (str): The prompt describing what email to generate
+        is_formal (bool, optional): Whether to use formal tone. Defaults to True.
+        recipient_name (str, optional): Name of the recipient to personalize the email
+        sender_name (str, optional): Name of the sender to include in the signature
+        sender_designation (str, optional): Job title or designation of the sender
+    """
+    try:
+        # Use the default initialized client
         model = genai.GenerativeModel('gemini-1.5-pro')
         
         # Create a detailed prompt
         tone = "formal and professional" if is_formal else "friendly and conversational"
+        
+        # Add recipient and sender information if provided
+        recipient_info = f"\nThe email is addressed to {recipient_name}." if recipient_name else ""
+        sender_info = ""
+        if sender_name:
+            sender_info = f"\nThe email is from {sender_name}"
+            if sender_designation:
+                sender_info += f", {sender_designation}"
+        
         detailed_prompt = f"""
         Create a {tone} email message based on this instruction:
         "{prompt}"
+        {recipient_info}{sender_info}
         
         The email should be:
         - Clear and concise
         - {tone} in tone
-        - Include appropriate greeting and sign-off
+        - Include appropriate greeting (using recipient's name if provided) and sign-off (using sender's name and designation if provided)
         - Include any important details mentioned in the instruction
         - Well-structured with paragraphs as needed
         
@@ -98,17 +172,27 @@ def generate_email(prompt, is_formal=True):
         }
 
 
-def send_to_gmail(recipient_email, subject, message_body):
-    """Send the email using Composio's Gmail integration"""
+def send_to_gmail(recipient_email, subject, message_body, entity_id="default"):
+    """Send the email using Composio's Gmail integration
+    
+    Args:
+        recipient_email (str): Email address of the recipient
+        subject (str): Subject of the email
+        message_body (str): Body content of the email
+        entity_id (str, optional): The entity ID used to identify which Gmail account to use.
+                                  This should match the entity_id used during setup.
+                                  Defaults to "default".
+    """
     try:
-        # Use the correct parameter names for the Gmail action
+        # According to Composio docs, entity_id should be passed as a separate parameter, not in the params dict
         response = composio_tool_set.execute_action(
-            Action.GMAIL_SEND_EMAIL,
-            {
+            action=Action.GMAIL_SEND_EMAIL,
+            params={
                 "recipient_email": recipient_email,
                 "subject": subject,
                 "body": message_body
-            }
+            },
+            entity_id=entity_id  # This is the correct way to specify which user's Gmail account to use
         )
         
         logger.info(f"Gmail API response: {response}")

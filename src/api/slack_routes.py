@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, status
+from typing import Optional, Dict
 from src.models.schemas import SlackMessageRequest, SlackMessageResponse, ChannelListResponse, SlackChannelInfo
 from src.services import slack_service
 from src.utils.response_utils import handle_service_result, create_response
@@ -23,19 +24,33 @@ async def setup_slack_integration():
     Setup Slack integration with Composio.
     Returns a URL for authentication if needed.
     """
+    # Always use the Composio API key from settings for setup
     result = slack_service.setup_slack_integration()
     return handle_service_result(result, "Failed to setup Slack integration")
 
 
 @router.get("/channels", response_model=ChannelListResponse, status_code=status.HTTP_200_OK)
-async def get_channels():
+async def get_channels(bot_token: str):
     """
-    Get available Slack channels.
+    Fetch available Slack channels using the provided bot token.
+    
+    Parameters:
+    - bot_token: Slack bot token to use for authentication
     """
     try:
-        channels_data = slack_service.get_channels()
+        # Validate bot token
+        if not bot_token or bot_token == "string":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A valid Slack bot token must be provided"
+            )
+            
+        # Fetch channels using the provided bot token
+        channels_data = slack_service.get_channels(bot_token)
         channels = [SlackChannelInfo(id=channel["id"], name=channel["name"]) for channel in channels_data]
         return ChannelListResponse(channels=channels)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting channels: {str(e)}")
         raise HTTPException(
@@ -50,8 +65,8 @@ async def generate_message(request: SlackMessageRequest):
     Generate a Slack message based on the provided prompt without sending it.
     """
     try:
-        # Get channel name
-        channel_name = slack_service.get_channel_name(request.channel_id)
+        # Use channel name from request or a default placeholder
+        channel_name = request.channel_name or "channel"
         
         # Generate message
         result = slack_service.generate_message(request.content_prompt)
@@ -84,8 +99,8 @@ async def send_message(request: SlackMessageRequest, background_tasks: Backgroun
     Generate and send a Slack message based on the provided prompt.
     """
     try:
-        # Get channel name
-        channel_name = slack_service.get_channel_name(request.channel_id)
+        # Get channel name - prefer the one provided in the request
+        channel_name = request.channel_name or slack_service.get_channel_name(request.channel_id)
         
         # Generate the message content
         gen_result = slack_service.generate_message(request.content_prompt)
@@ -102,8 +117,10 @@ async def send_message(request: SlackMessageRequest, background_tasks: Backgroun
         
         # Send the message
         send_result = slack_service.send_to_slack(
-            message_content, 
-            request.channel_id
+            message=message_content, 
+            channel_id=request.channel_id,
+            channel_name=request.channel_name,
+            bot_token=request.bot_token
         )
         
         if not send_result["success"]:
@@ -116,11 +133,13 @@ async def send_message(request: SlackMessageRequest, background_tasks: Backgroun
                 error=send_result.get("error", "Unknown error")
             )
         
-        logger.info(f"Message sent successfully to #{channel_name}")
+        # Always use the channel name from the request
+        display_channel = request.channel_name or "channel"
+        logger.info(f"Message sent successfully to #{display_channel}")
         return SlackMessageResponse(
             success=True,
-            message=f"Message sent successfully to #{channel_name}",
-            channel_name=channel_name,
+            message=f"Message sent successfully to #{display_channel}",
+            channel_name=display_channel,
             message_content=message_content
         )
     except Exception as e:
