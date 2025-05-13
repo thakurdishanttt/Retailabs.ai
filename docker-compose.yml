@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    environment:
+      - PORT=8000
+      # Add other environment variables here as needed
+      # Note: For production, use environment files or Docker secrets
+    restart: unless-stopped
