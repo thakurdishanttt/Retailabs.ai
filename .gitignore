@@ -48,3 +48,5 @@ slack_message_agent.py
 # OS specific
 .DS_Store
 Thumbs.db
+
+__pycache__/
